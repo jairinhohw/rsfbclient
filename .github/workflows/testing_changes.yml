@@ -96,6 +96,9 @@ jobs:
         run: |
           choco install firebird -params '/ClientAndDevTools'
 
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
       - name: Locating fbclient.lib Dir on Windows
         if: matrix.plataform == 'windows'
         shell: powershell
@@ -121,9 +124,6 @@ jobs:
             }
           }
           Search-Common-Folders -FileName "fbclient_ms.lib"
-
-      - name: Checkout sources
-        uses: actions/checkout@v2
 
       - name: Create a alias to test.fdb on fb v2
         if: matrix.firebird == 'v2'
