@@ -115,7 +115,7 @@ jobs:
               $found = Get-ChildItem -File -Recurse -Path $folder -Include $FileName -ea 0
               Foreach ($source in $found) {
                 echo "Found: $source"
-                $DestFile = Join-Path -Path Get-Location -ChildPath "fbclient.lib"
+                $DestFile = Join-Path -Path "." -ChildPath "fbclient.lib"
                 # New-Item $DestDir -ItemType Directory -ea 0
                 echo "Copying $source to $DesdtDir"
                 Copy-Item -Path $source -Destination $DestFile
