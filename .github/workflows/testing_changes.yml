@@ -116,7 +116,7 @@ jobs:
               Foreach ($source in $found) {
                 echo "Found: $source"
                 $CurDir = Get-Location
-                $DestDir = $CurDir
+                $DestDir = Join-Path -Path $CurDir -ChildPath "."
                 $DestFile = Join-Path -Path $DestDir -ChildPath "fbclient.lib"
                 # New-Item $DestDir -ItemType Directory -ea 0
                 echo "Copying $source to $DesdtDir"
