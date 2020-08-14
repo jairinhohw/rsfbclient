@@ -106,10 +106,7 @@ jobs:
             )
             $WinSysDir = [Environment]::SystemDirectory
             $CommonDirs = @(
-                "C:\Program Files\Firebird\Firebird_3_0", 
-                "C:\Program Files\Firebird", 
-                "C:\Firebird",
-                "${WinSysDir}"
+                "C:\Program Files\Firebird\Firebird_3_0\lib"
                 )
             Foreach ($folder in $CommonDirs) {
               $found = Get-ChildItem -File -Recurse -Path $folder -Include $FileName -ea 0
@@ -117,8 +114,9 @@ jobs:
                 echo "Found: $source"
                 $DestFile = Join-Path -Path "." -ChildPath "fbclient.lib"
                 # New-Item $DestDir -ItemType Directory -ea 0
-                echo "Copying $source to $DesdtDir"
+                echo "Copying $source to $DestFile"
                 Copy-Item -Path $source -Destination $DestFile
+                ls
               }
             }
           }
