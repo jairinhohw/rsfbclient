@@ -89,6 +89,15 @@ pub trait FirebirdClient: Send {
         params: Vec<Param>,
     ) -> Result<(), FbError>;
 
+    /// Execute the prepared statement with parameters, returning one row
+    fn execute2(
+        &mut self,
+        db_handle: Self::DbHandle,
+        tr_handle: Self::TrHandle,
+        stmt_handle: Self::StmtHandle,
+        params: Vec<Param>,
+    ) -> Result<Vec<Column>, FbError>;
+
     /// Fetch rows from the executed statement, coercing the types
     /// according to the provided blr
     fn fetch(

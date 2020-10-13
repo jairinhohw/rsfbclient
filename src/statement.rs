@@ -39,6 +39,19 @@ where
         self.data.execute(self.conn, &mut tr.data, params)
     }
 
+    /// Execute the current statement returning one row
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
+    pub fn execute2<R, T>(&mut self, tr: &mut Transaction<C>, params: T) -> Result<R, FbError>
+    where
+        T: IntoParams,
+        R: FromRow,
+    {
+        let row = self.data.execute2(self.conn, &mut tr.data, params)?;
+
+        Ok(FromRow::try_from(row)?)
+    }
+
     /// Execute the current statement
     /// and returns the lines founds
     ///
@@ -167,6 +180,34 @@ where
         }
 
         Ok(())
+    }
+
+    /// Execute the current statement returning one row
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
+    pub fn execute2<T, C>(
+        &mut self,
+        conn: &Connection<C>,
+        tr: &mut TransactionData<C::TrHandle>,
+        params: T,
+    ) -> Result<Vec<Column>, FbError>
+    where
+        T: IntoParams,
+        C: FirebirdClient<StmtHandle = H>,
+    {
+        let row = conn.cli.borrow_mut().execute2(
+            conn.handle,
+            tr.handle,
+            self.handle,
+            params.to_params(),
+        )?;
+
+        if self.stmt_type == StmtType::Select {
+            // Close the cursor, as it will not be used
+            self.close_cursor(conn)?;
+        }
+
+        Ok(row)
     }
 
     /// Execute the current statement
@@ -381,6 +422,33 @@ mk_tests_default! {
             Ok(())
         })
         .expect("Error in the transaction");
+
+        conn.close().expect("error on close the connection");
+    }
+
+    #[test]
+    fn insert_returning_test() {
+        let (conn, table) = setup();
+
+        let vals = vec![(Some(9), "apple".to_string()), (Some(12), "jack".to_string()), (None, "coffee".to_string())];
+        let mut responses = vec![];
+
+        conn.with_transaction(|tr| {
+            let mut stmt = tr.prepare(&format!("insert into {} (id, name) values (?, ?) returning id, name", table))?;
+
+            for val in vals.iter() {
+
+                let resp = stmt.execute2(tr, val.clone())
+                    .expect("Error on insert");
+
+                responses.push(resp);
+            }
+
+            Ok(())
+        })
+        .expect("Error in the transaction");
+
+        assert_eq!(vals, responses);
 
         conn.close().expect("error on close the connection");
     }

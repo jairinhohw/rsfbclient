@@ -194,6 +194,19 @@ impl FirebirdClient for RustFbClient {
             .unwrap_or_else(err_client_not_connected)
     }
 
+    fn execute2(
+        &mut self,
+        _db_handle: Self::DbHandle,
+        tr_handle: Self::TrHandle,
+        stmt_handle: Self::StmtHandle,
+        params: Vec<Param>,
+    ) -> Result<Vec<Column>, FbError> {
+        self.conn
+            .as_mut()
+            .map(|conn| conn.execute2(tr_handle, stmt_handle, &params))
+            .unwrap_or_else(err_client_not_connected)
+    }
+
     fn fetch(
         &mut self,
         _db_handle: Self::DbHandle,
@@ -543,6 +556,70 @@ impl FirebirdWireConnection {
         }
     }
 
+    /// Execute the prepared statement with parameters, returning data
+    pub fn execute2(
+        &mut self,
+        tr_handle: TrHandle,
+        stmt_handle: StmtHandle,
+        params: &[Param],
+    ) -> Result<Vec<Column>, FbError> {
+        let params =
+            if let Some(StmtData { param_count, .. }) = self.stmt_data_map.get_mut(&stmt_handle) {
+                if params.len() != *param_count {
+                    return Err(format!(
+                        "Tried to execute a statement that has {} parameters while providing {}",
+                        param_count,
+                        params.len()
+                    )
+                    .into());
+                }
+
+                blr::params_to_blr(self, tr_handle, params)?
+            } else {
+                return Err("Tried to execute a dropped statement".into());
+            };
+
+        if let Some(StmtData { blr, xsqlda, .. }) = self.stmt_data_map.get(&stmt_handle) {
+            self.socket
+                .write_all(&execute2(
+                    tr_handle.0,
+                    stmt_handle.0,
+                    &params.blr,
+                    &params.values,
+                    &blr,
+                ))
+                .unwrap();
+            self.socket.flush()?;
+
+            let (op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
+
+            if op_code == WireOp::Response as u32 {
+                // An error ocurred
+                parse_response(&mut resp)?;
+            }
+
+            if op_code != WireOp::SqlResponse as u32 {
+                return err_conn_rejected(op_code);
+            }
+
+            dbg!(&resp);
+
+            let parsed_cols = parse_sql_response(&mut resp, xsqlda, self.version, &self.charset)?;
+
+            parse_response(&mut resp)?;
+
+            let mut cols = Vec::with_capacity(parsed_cols.len());
+
+            for pc in parsed_cols {
+                cols.push(pc.into_column(self, tr_handle)?);
+            }
+
+            Ok(cols)
+        } else {
+            Err("Tried to execute a dropped statement".into())
+        }
+    }
+
     /// Fetch rows from the executed statement, coercing the types
     /// according to the provided blr
     pub fn fetch(
@@ -834,11 +911,11 @@ fn connection_test() {
             db_handle,
             tr_handle,
             Dialect::D3,
-            "
-            SELECT
-                1, 'abcdefghij' as tst, rand(), CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP, -1, -2, -3, -4, -5, 1, 2, 3, 4, 5, 0 as last
-            FROM RDB$DATABASE where 1 = ?
-            ",
+            // "
+            // SELECT
+            //     1, 'abcdefghij' as tst, rand(), CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP, -1, -2, -3, -4, -5, 1, 2, 3, 4, 5, 0 as last
+            // FROM RDB$DATABASE where 1 = ?
+            // ",
             // "
             // SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
             // SELECT cast(2 as bigint), cast('abcdefgh' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
@@ -846,23 +923,29 @@ fn connection_test() {
             // SELECT cast(4 as bigint), cast(null as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
             // SELECT cast(null as bigint), cast('abcd' as varchar(10)) as tst FROM RDB$DATABASE
             // ",
+            "INSERT INTO PRODUCT0 VALUES (5, 'tst2', 10) returning id, name",
+            // "SELECT * FROM PRODUCT0",
         )
         .unwrap();
 
     println!("Statement type: {:?}", stmt_type);
 
-    let params = rsfbclient_core::IntoParams::to_params((1,));
+    let params = rsfbclient_core::IntoParams::to_params(());
 
-    conn.execute(tr_handle, stmt_handle, &params).unwrap();
+    let cols = conn.execute2(tr_handle, stmt_handle, &params).unwrap();
 
-    loop {
-        let resp = conn.fetch(tr_handle, stmt_handle).unwrap();
+    println!("{:?}", cols);
 
-        if resp.is_none() {
-            break;
-        }
-        println!("Fetch Resp: {:#?}", resp);
-    }
+    // loop {
+    //     let resp = conn.fetch(tr_handle, stmt_handle).unwrap();
+
+    //     if resp.is_none() {
+    //         break;
+    //     }
+    //     println!("Fetch Resp: {:#?}", resp);
+    // }
+
+    // conn.transaction_operation(tr_handle, TrOp::Commit).unwrap();
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 }
